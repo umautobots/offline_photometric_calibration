@@ -191,34 +191,42 @@ int main( int argc, char** argv )
 	if(-1 == system("rm -rf vignetteCalibResult")) printf("could not delete old vignetteCalibResult folder!\n");
 	if(-1 == system("mkdir vignetteCalibResult")) printf("could not delete old vignetteCalibResult folder!\n");
 
-	// affine map from plane cordinates to grid coordinates.
+	// Two coordinate systems are constructed in the same plane: (1) plane coordinates and (2) grid coordinates. The
+	// plane coordinates are centered on the ArUco marker with units equal to the width of the ArUco marker. The grid
+	// coordinates are centered at (-facw, -fach) in the plane coordinates. In the grid coordinates the ArUco marker
+	// center is located at (gw/2, gh/2). The grid coordinates are discretized into a gw x gh grid.
+
+	// Set the transformation matrix from plane coordinates to grid coordinates.
 	Eigen::Matrix3f K_p2idx = Eigen::Matrix3f::Identity();
 	K_p2idx(0,0) = gw / facw;
 	K_p2idx(1,1) = gh / fach;
 	K_p2idx(0,2) = gw / 2;
 	K_p2idx(1,2) = gh / 2;
+
+	// Compute the transformation matrix from grid coordinates to plane coordinates.
 	Eigen::Matrix3f K_p2idx_inverse = K_p2idx.inverse();
 
-
-	// load images, rectify and estimate the camera pose wrt. the plane.
+	// Create dataset reader
 	DatasetReader* reader = new DatasetReader(argv[1]);
 	printf("SEQUENCE NAME: %s!\n", argv[1]);
 
+	// Set the rectified image dimensions (from calibration file)
 	int w_out, h_out;
-	//Eigen::Matrix3f K = reader->getUndistorter()->getK_rect();
 	w_out = reader->getUndistorter()->getOutputDims()[0];
 	h_out = reader->getUndistorter()->getOutputDims()[1];
 
+	// Create the ArUco marker detector
 	aruco::MarkerDetector MDetector;
 
 	std::vector<float*> images;
 	std::vector<float*> p2imgX;
 	std::vector<float*> p2imgY;
 
+	// Set the input image dimensions (from calibration file)
 	int wI = reader->getUndistorter()->getInputDims()[0];
 	int hI = reader->getUndistorter()->getInputDims()[1];
 
-
+	// Compute the average exposure time over the full set of images
 	float meanExposure = 0;
 	for(int i=0;i<reader->getNumImages();i+=imageSkip)
 		meanExposure+=reader->getExposure(i);
@@ -230,15 +238,20 @@ int main( int argc, char** argv )
 	for(int i=0;i<reader->getNumImages();i+=imageSkip)
 	{
         std::vector<aruco::Marker> Markers;
+
+		// Get the undistorted/rectified image (with no photometric correction)
 		ExposureImage* img = reader->getImage(i,true, false, false, false);
 
 		cv::Mat InImage;
 		cv::Mat(h_out, w_out, CV_32F, img->image).convertTo(InImage, CV_8U, 1, 0);
 		delete img;
 
+		// Detect the ArUco marker
 		MDetector.detect(InImage,Markers);
 		if(Markers.size() != 1) continue;
 
+		// Set ptsI, the pixel coordinates in the undistorted image of the ArUco marker corners, and ptsP, the plane
+		// coordinates of the ArUco marker corners (ptsP are known by construction)
         std::vector<cv::Point2f> ptsP;
         std::vector<cv::Point2f> ptsI;
 		ptsI.push_back(cv::Point2f(Markers[0][0].x, Markers[0][0].y));
@@ -250,6 +263,7 @@ int main( int argc, char** argv )
 		ptsP.push_back(cv::Point2f(0.5,-0.5));
 		ptsP.push_back(cv::Point2f(-0.5,-0.5));
 
+		// Compute the homography, H, from the plane coordinates to the undistorted pixel coordinates
 		cv::Mat Hcv = cv::findHomography(ptsP, ptsI);
 		Eigen::Matrix3f H;
 		H(0,0) = Hcv.at<double>(0,0);
@@ -262,15 +276,17 @@ int main( int argc, char** argv )
 		H(2,1) = Hcv.at<double>(2,1);
 		H(2,2) = Hcv.at<double>(2,2);
 
+		// Get the distorted/unrectified image with gamma correction removed
 		ExposureImage* imgRaw = reader->getImage(i,false, true, false, false);
 
 
 		float* plane2imgX = new float[gw*gh];
 		float* plane2imgY = new float[gw*gh];
 
+		// Compute the homography, HK, from the grid coordinates to the pixel coordinates in the undistorted image
 		Eigen::Matrix3f HK = H*K_p2idx_inverse;
 
-
+		// Compute a map from grid coordinates indices to pixel coordinates in the undistorted image
 		int idx=0;
 		for(int y=0;y<gh;y++)
 			for(int x=0;x<gw;x++)
@@ -281,15 +297,19 @@ int main( int argc, char** argv )
 				idx++;
 			}
 
+		// Convert the map to instead go from grid coordinate indices to pixel coordinates in the distorted image
 		reader->getUndistorter()->distortCoordinates(plane2imgX, plane2imgY, gw*gh);
 
 		if(imgRaw->exposure_time == 0) imgRaw->exposure_time = 1;
 
+		// Normalize out the exposure time
+		// Note: the exposure time can be divided out because gamma correction has been removed
 		float* image = new float[wI*hI];
 		for(int y=0; y<hI;y++)
 			for(int x=0; x<wI;x++)
 				image[x+y*wI] = meanExposure*imgRaw->image[x+y*wI] / imgRaw->exposure_time;
 
+		// Discard pixels with high gradient
 		for(int y=2; y<hI-2;y++)
 			for(int x=2; x<wI-2;x++)
 			{
@@ -300,10 +320,11 @@ int main( int argc, char** argv )
 					}
 			}
 
+		// Add the image to the vector
 		images.push_back(image);
 
 
-		// debug-plot.
+		// debug-plot (draw grid lines on the unrectified image and display the result).
 		cv::Mat dbgImg(imgRaw->h, imgRaw->w, CV_8UC3);
 		for(int i=0;i<imgRaw->w*imgRaw->h;i++)
 			dbgImg.at<cv::Vec3b>(i) = cv::Vec3b(imgRaw->image[i], imgRaw->image[i], imgRaw->image[i]);
@@ -342,7 +363,7 @@ int main( int argc, char** argv )
 			}
 
 
-
+		// Nullify any mapping from a grid coordinate index to an unrectified pixel coordinate outside of the image
 		for(int x=0; x<gw;x++)
 			for(int y=0; y<gh;y++)
 			{
@@ -356,6 +377,7 @@ int main( int argc, char** argv )
 				}
 			}
 
+		// Show the debugging image
 		cv::imshow("inRaw",dbgImg);
 
 		if(rand()%40==0)
@@ -367,6 +389,7 @@ int main( int argc, char** argv )
 
 		cv::waitKey(1);
 
+		// Save the mapping from grid coordinate indices to pixel coordinates in the distorted image
 		p2imgX.push_back(plane2imgX);
 		p2imgY.push_back(plane2imgY);
 	}
@@ -377,24 +400,27 @@ int main( int argc, char** argv )
 	logFile.precision(15);
 
 
-
+	// Initialize variables (comments relate to paper)
 	int n = images.size();
-	float* planeColor = new float[gw*gh];
-	float* planeColorFF = new float[gw*gh];
-	float* planeColorFC = new float[gw*gh];
-	float* vignetteFactor = new float[hI*wI];
-	float* vignetteFactorTT = new float[hI*wI];
-	float* vignetteFactorCT = new float[hI*wI];
+	float* planeColor = new float[gw*gh]; // C(x)
+	float* planeColorFF = new float[gw*gh]; // Denominator of eq 10 (divided by t_i)
+	float* planeColorFC = new float[gw*gh]; // Numerator of eq 10 (divided by t_i)
+	float* vignetteFactor = new float[hI*wI]; // V(\pi_i(x))
+	float* vignetteFactorTT = new float[hI*wI]; // Denominator of eq 11 (divided by t_i)
+	float* vignetteFactorCT = new float[hI*wI]; // Numerator of eq 11 (divided by t_i)
 
 
 	// initialize vignette factors to 1.
 	for(int i=0;i<hI*wI;i++) vignetteFactor[i] = 1;
 
+	// Initialize the sum of the residuals E (equation 9 in the paper) and counter for the number of residuals R
 	double E=0;
 	double R=0;
 	for(int it=0;it<maxIterations;it++)
 	{
 		int oth2 = outlierTh*outlierTh;
+
+		// Increase the outlier threshold if the iteration count has surpassed half the maximum
 		if(it < maxIterations/2) oth2=10000*10000;
 
 		// ============================ optimize planeColor ================================
@@ -411,9 +437,11 @@ int main( int argc, char** argv )
 
 			for(int pi=0;pi<gw*gh;pi++)		// for all plane points
 			{
+				// Skip if the grid coordinate index does not project into the image
 				if(isnanf(plane2imgX[pi])) continue;
 
 				// get vignetted color at that point, and add to build average.
+				// In the paper `color` is U(I_i(\pi_i(x))) / t_i and fac is V(\pi_i(x))
 				float color = getInterpolatedElement(image, plane2imgX[pi], plane2imgY[pi], wI);
 				float fac = getInterpolatedElement(vignetteFactor, plane2imgX[pi], plane2imgY[pi], wI);
 
@@ -456,6 +484,7 @@ int main( int argc, char** argv )
 		// ================================ optimize vignette =======================================
 		memset(vignetteFactorTT,0,hI*wI*sizeof(float));
 		memset(vignetteFactorCT,0,hI*wI*sizeof(float));
+		// Initialize the sum of the residuals E (equation 9 in the paper) and counter for the number of residuals R
 		E=0;R=0;
 
 		for(int img=0;img<n;img++)	// for all images
@@ -466,10 +495,12 @@ int main( int argc, char** argv )
 
 			for(int pi=0;pi<gw*gh;pi++)		// for all plane points
 			{
+				// Skip if the grid coordinate index does not project into the image
 				if(isnanf(plane2imgX[pi])) continue;
 				float x = plane2imgX[pi];
 				float y = plane2imgY[pi];
 
+				// In the paper `color` is U(I_i(\pi_i(x))) / t_i and fac is V(\pi_i(x))
 				float colorImage = getInterpolatedElement(image, x, y, wI);
 				float fac = getInterpolatedElement(vignetteFactor, x, y, wI);
 				float colorPlane = planeColor[pi];
