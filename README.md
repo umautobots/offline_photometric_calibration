@@ -70,11 +70,6 @@ vignetteSmoothed.png is a slightly smoothed version, mainly to remove the black 
 
 
 
-# Usage: Matlab evaluation code
-Implements Sim(3) alignment of a tracked trajectory to the ground-truth segments, and subsequent computation of the different error values. See MatlabEvaluationCode/Example.m for an example, and some documentation regarding the computed values. Further, we include example results computed with DSO for all 50 sequences.
-
-
-
 #  License
 The code provided in this repository is licensed under the BSD license.
 
