@@ -35,7 +35,8 @@
 #include <algorithm>
 
 #include "opencv2/opencv.hpp"
-#include "FOVUndistorter.h"
+#include "Undistort.h"
+#include "ExposureImage.h"
 #include "PhotometricUndistorter.h"
 
 #include "zip.h"
@@ -132,15 +133,16 @@ public:
 
 
 		// create undistorter.
-		undistorter = new UndistorterFOV((path+"camera.txt").c_str());
-		photoUndistorter = new PhotometricUndistorter(path+"pcalib.txt", path+"vignette.png",undistorter->getInputDims()[0],undistorter->getInputDims()[1]);
+		undistorter = Undistort::getUndistorterForFile((path+"camera.txt").c_str());
+		photoUndistorter = new PhotometricUndistorter(path+"pcalib.txt", path+"vignette.png",
+			undistorter->getOriginalSize()[0],undistorter->getOriginalSize()[1]);
 
 
 		// get image widths.
-		widthOrg = undistorter->getInputDims()[0];
-		heightOrg = undistorter->getInputDims()[1];
-		width= undistorter->getOutputDims()[0];
-		height= undistorter->getOutputDims()[1];
+		widthOrg = undistorter->getOriginalSize()[0];
+		heightOrg = undistorter->getOriginalSize()[1];
+		width= undistorter->getSize()[0];
+		height= undistorter->getSize()[1];
 
 		internalTempBuffer=new float[widthOrg*heightOrg];
 
@@ -156,7 +158,7 @@ public:
 
 	}
 
-	UndistorterFOV* getUndistorter()
+	Undistort* getUndistorter()
 	{
 		return undistorter;
 	}
@@ -336,7 +338,7 @@ private:
 
 
 	// internal structures.
-	UndistorterFOV* undistorter;
+	Undistort* undistorter;
 	PhotometricUndistorter* photoUndistorter;
 	zip_t* ziparchive;
 	char* databuffer;

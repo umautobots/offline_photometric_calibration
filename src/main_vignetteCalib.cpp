@@ -212,8 +212,8 @@ int main( int argc, char** argv )
 
 	// Set the rectified image dimensions (from calibration file)
 	int w_out, h_out;
-	w_out = reader->getUndistorter()->getOutputDims()[0];
-	h_out = reader->getUndistorter()->getOutputDims()[1];
+	w_out = reader->getUndistorter()->getSize()[0];
+	h_out = reader->getUndistorter()->getSize()[1];
 
 	// Create the ArUco marker detector
 	aruco::MarkerDetector MDetector;
@@ -223,8 +223,8 @@ int main( int argc, char** argv )
 	std::vector<float*> p2imgY;
 
 	// Set the input image dimensions (from calibration file)
-	int wI = reader->getUndistorter()->getInputDims()[0];
-	int hI = reader->getUndistorter()->getInputDims()[1];
+	int wI = reader->getUndistorter()->getOriginalSize()[0];
+	int hI = reader->getUndistorter()->getOriginalSize()[1];
 
 	// Compute the average exposure time over the full set of images
 	float meanExposure = 0;
@@ -298,7 +298,7 @@ int main( int argc, char** argv )
 			}
 
 		// Convert the map to instead go from grid coordinate indices to pixel coordinates in the distorted image
-		reader->getUndistorter()->distortCoordinates(plane2imgX, plane2imgY, gw*gh);
+		reader->getUndistorter()->distortCoordinates(plane2imgX, plane2imgY, plane2imgX, plane2imgY, gw*gh);
 
 		if(imgRaw->exposure_time == 0) imgRaw->exposure_time = 1;
 
