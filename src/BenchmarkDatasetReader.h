@@ -39,8 +39,6 @@
 #include "ExposureImage.h"
 #include "PhotometricUndistorter.h"
 
-#include "zip.h"
-
 
 inline int getdir (std::string dir, std::vector<std::string> &files)
 {
@@ -77,9 +75,7 @@ inline int getdir (std::string dir, std::vector<std::string> &files)
 /*
  * provides read functionality for one of the dataset sequences.
  * * path is the folder for the sequence, with trailing slash (e.g. /home/Peter/datasets/sequenceX/
- * 		=> if it contains a filder "images", images will be read from there.
- * 		=> otherwise we assume the images will be zipped in "images.zip".
- * * MT = true: multi-threaded image loading, to allow for real-time playback (reading, decoding & rectifying images takes a while).
+ * 		=> if it contains a folder "images", images will be read from there.
  */
 class DatasetReader
 {
@@ -89,46 +85,13 @@ public:
 		this->path = folder;
 		for(int i=0;i<3;i++)
 		{
-			ziparchive=0;
 			undistorter=0;
 			databuffer=0;
 		}
 
 		getdir (path+"images/", files);
-		if(files.size() > 0)
-		{
-			printf("Load Dataset %s: found %d files in folder /images; assuming that all images are there.\n",
-					path.c_str(), (int)files.size());
-			isZipped=false;
-		}
-		else
-		{
-			printf("Load Dataset %s: found no in folder /images; assuming that images are zipped.\n",
-					path.c_str());
-			isZipped=true;
-
-			int ziperror=0;
-			ziparchive = zip_open((path+"images.zip").c_str(),  ZIP_RDONLY, &ziperror);
-			if(ziperror!=0)
-			{
-				printf("ERROR %d reading archive %s!\n", ziperror, (path+"images.zip").c_str());
-				exit(1);
-			}
-
-			files.clear();
-			int numEntries = zip_get_num_entries(ziparchive, 0);
-			for(int k=0;k<numEntries;k++)
-			{
-				const char* name = zip_get_name(ziparchive, k,  ZIP_FL_ENC_STRICT);
-				std::string nstr = std::string(name);
-				if(nstr == "." || nstr == "..") continue;
-				files.push_back(name);
-			}
-
-			printf("got %d entries and %d files from zipfile!\n", numEntries, (int)files.size());
-			std::sort(files.begin(), files.end());
-
-		}
+		printf("Load Dataset %s: found %d files in folder /images; assuming that all images are there.\n",
+				path.c_str(), (int)files.size());
 		loadTimestamps(path+"times.txt");
 
 
@@ -152,7 +115,6 @@ public:
 	{
 		if(undistorter!=0) delete undistorter;
 		if(photoUndistorter!=0) delete photoUndistorter;
-		if(ziparchive!=0) zip_close(ziparchive);
 		if(databuffer!=0) delete[] databuffer;
 		delete[] internalTempBuffer;
 
@@ -248,33 +210,7 @@ public:
 
 	cv::Mat getImageRaw_internal(int id)
 	{
-		if(!isZipped)
-		{
-			// CHANGE FOR ZIP FILE
-			return cv::imread(files[id],CV_LOAD_IMAGE_GRAYSCALE);
-		}
-		else
-		{
-			if(databuffer==0) databuffer = new char[widthOrg*heightOrg*6+10000];
-			zip_file_t* fle = zip_fopen(ziparchive, files[id].c_str(), 0);
-			long readbytes = zip_fread(fle, databuffer, (long)widthOrg*heightOrg*6+10000);
-
-			if(readbytes > (long)widthOrg*heightOrg*6)
-			{
-				printf("read %ld/%ld bytes for file %s. increase buffer!!\n", readbytes,(long)widthOrg*heightOrg*6+10000, files[id].c_str());
-				delete[] databuffer;
-				databuffer = new char[(long)widthOrg*heightOrg*60+1000000];
-				fle = zip_fopen(ziparchive, files[id].c_str(), 0);
-				readbytes = zip_fread(fle, databuffer, (long)widthOrg*heightOrg*60+100000);
-
-				if(readbytes > (long)widthOrg*heightOrg*60+10000)
-				{
-					printf("buffer still to small (read %ld/%ld). abort.\n", readbytes,(long)widthOrg*heightOrg*60+100000);
-					exit(1);
-				}
-			}
-			return cv::imdecode(cv::Mat(readbytes,1,CV_8U, databuffer), CV_LOAD_IMAGE_GRAYSCALE);
-		}
+		return cv::imread(files[id],CV_LOAD_IMAGE_GRAYSCALE);
 	}
 
 
@@ -333,14 +269,12 @@ private:
 	int widthOrg, heightOrg;
 
 	std::string path;
-	bool isZipped;
 
 
 
 	// internal structures.
 	Undistort* undistorter;
 	PhotometricUndistorter* photoUndistorter;
-	zip_t* ziparchive;
 	char* databuffer;
 
 	float* internalTempBuffer;

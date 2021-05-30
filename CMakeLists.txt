@@ -11,7 +11,6 @@ set(EXECUTABLE_OUTPUT_PATH bin)
 
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV REQUIRED)
-find_package(LibZip 1.1.1 REQUIRED)
 
 set(CMAKE_CXX_FLAGS
    "${CMAKE_CXX_FLAGS_RELEASE} ${SSE_FLAGS} -std=c++0x"
@@ -20,16 +19,14 @@ set(CMAKE_CXX_FLAGS
 include_directories(
 	${EIGEN3_INCLUDE_DIR}
         ${Boost_INCLUDE_DIRS}
-        ${LIBZIP_INCLUDE_DIR_ZIP}
-        ${LIBZIP_INCLUDE_DIR_ZIPCONF}
 )
 
 
 add_executable(responseCalib src/main_responseCalib.cpp src/Undistort.cpp src/PhotometricUndistorter.cpp)
-target_link_libraries(responseCalib ${OpenCV_LIBS} ${LIBZIP_LIBRARY})
+target_link_libraries(responseCalib ${OpenCV_LIBS})
 
 #add_executable(playDataset src/main_playbackDataset.cpp src/FOVUndistorter.cpp src/PhotometricUndistorter.cpp)
-#target_link_libraries(playDataset ${OpenCV_LIBS} ${LIBZIP_LIBRARY})
+#target_link_libraries(playDataset ${OpenCV_LIBS})
 
 
 
@@ -41,7 +38,7 @@ find_package(aruco)
 
 IF(aruco_FOUND)
 	add_executable(vignetteCalib src/main_vignetteCalib.cpp src/Undistort.cpp src/PhotometricUndistorter.cpp)
-	target_link_libraries(vignetteCalib ${OpenCV_LIBS} ${aruco_LIBS} ${LIBZIP_LIBRARY})
+	target_link_libraries(vignetteCalib ${OpenCV_LIBS} ${aruco_LIBS})
 ELSE()
 	message("================ aruco not found. not compiling vignetteCalib. ========================")
 ENDIF()
