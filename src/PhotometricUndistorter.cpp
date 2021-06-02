@@ -122,7 +122,7 @@ PhotometricUndistorter::PhotometricUndistorter(
 
 
 	printf("Reading Vignette Image from %s\n",vignetteImage.c_str());
-	cv::Mat vignetteMat = cv::imread(vignetteImage.c_str(), CV_LOAD_IMAGE_UNCHANGED);
+	cv::Mat vignetteMat = cv::imread(vignetteImage.c_str(), cv::IMREAD_UNCHANGED);
 	vignetteMap = new float[w*h];
 	vignetteMapInv = new float[w*h];
 	if(vignetteMat.rows != h || vignetteMat.cols != w)

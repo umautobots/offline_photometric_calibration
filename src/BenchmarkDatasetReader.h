@@ -96,7 +96,7 @@ public:
 
 		// Set the saturation value, image type, number of zero-padded least significant bits
 		int saturationVal = pow(2, trueBitDepth) - 1;
-		cv::Mat tmpImg = cv::imread(files[0],CV_LOAD_IMAGE_ANYDEPTH);
+		cv::Mat tmpImg = cv::imread(files[0], cv::IMREAD_ANYDEPTH);
 		imageType = tmpImg.type();
 		if(imageType == CV_8UC1)
 		{
@@ -253,7 +253,7 @@ public:
 		}
 
 		// Import the image
-		cv::Mat imageRaw = cv::imread(files[id],CV_LOAD_IMAGE_ANYDEPTH);
+		cv::Mat imageRaw = cv::imread(files[id], cv::IMREAD_ANYDEPTH);
 
 		// Check the image parameters against expected values
 		if(!(imageRaw.rows == heightOrg && imageRaw.cols == widthOrg && imageRaw.type() == imageType))
