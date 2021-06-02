@@ -37,6 +37,7 @@
 #include <fstream>
 #include <dirent.h>
 #include <algorithm>
+#include <math.h>
 
 #include "BenchmarkDatasetReader.h"
 
@@ -45,9 +46,14 @@ int leakPadding=2;
 int nits = 10;
 int skipFrames = 1;
 
+// The true (embedded) pixel bit depth
+int trueBitDepth = 12;
+int saturationVal = pow(2, trueBitDepth) - 1;
+int numVals = saturationVal + 1;
 
 
-Eigen::Vector2d rmse(double* G, double* E, std::vector<double> &exposureVec, std::vector<unsigned char*> &dataVec,  int wh)
+template<typename T>
+Eigen::Vector2d rmse(double* G, double* E, std::vector<double> &exposureVec, std::vector<T*> &dataVec,  int wh)
 {
 	long double e=0;		// yeah - these will be sums of a LOT of values, so we need super high precision.
 	long double num=0;
@@ -57,7 +63,7 @@ Eigen::Vector2d rmse(double* G, double* E, std::vector<double> &exposureVec, std
 	{
 		for(int k=0;k<wh;k++)
 		{
-			if(dataVec[i][k] == 255) continue;
+			if(dataVec[i][k] == saturationVal) continue;
 			double r = G[dataVec[i][k]] - exposureVec[i]*E[k];
 			if(!std::isfinite(r)) continue;
 			e += r*r*1e-10;
@@ -67,73 +73,53 @@ Eigen::Vector2d rmse(double* G, double* E, std::vector<double> &exposureVec, std
 
 	return Eigen::Vector2d(1e5*sqrtl((e/num)), (double)num);
 }
+template Eigen::Vector2d rmse<unsigned char>(double* G, double* E, std::vector<double> &exposureVec,
+	std::vector<unsigned char*> &dataVec,  int wh);
+template Eigen::Vector2d rmse<unsigned short>(double* G, double* E, std::vector<double> &exposureVec,
+	std::vector<unsigned short*> &dataVec,  int wh);
 
 
 void plotE(double* E, int w, int h, std::string saveTo="")
 {
-
-	// try to find some good color scaling for plotting.
-	double offset = 20;
-	double min=1e10, max=-1e10;
-
 	double Emin=1e10, Emax=-1e10;
 
 	for(int i=0;i<w*h;i++)
 	{
-		double le = log(E[i]+offset);
-		if(le < min) min = le;
-		if(le > max) max = le;
-
 		if(E[i] < Emin) Emin = E[i];
 		if(E[i] > Emax) Emax = E[i];
 	}
 
-	cv::Mat EImg = cv::Mat(h,w,CV_8UC3);
 	cv::Mat EImg16 = cv::Mat(h,w,CV_16U);
 
 	for(int i=0;i<w*h;i++)
 	{
-		float val = 3 * (exp((log(E[i]+offset)-min) / (max-min))-1) / 1.7183;
-
-		int icP = val;
-		float ifP = val-icP;
-		icP = icP%3;
-
-		cv::Vec3b color;
-		if(icP == 0) color= cv::Vec3b(0 ,	   	0,		     	255*ifP);
-		if(icP == 1) color= cv::Vec3b(0, 		255*ifP,     	255);
-		if(icP == 2) color= cv::Vec3b(255*ifP, 	255, 			255);
-
-		EImg.at<cv::Vec3b>(i) = color;
 		EImg16.at<ushort>(i) = 255* 255* (E[i]-Emin) / (Emax-Emin);
 	}
 
 	printf("Irradiance %f - %f\n", Emin, Emax);
-	cv::imshow("lnE", EImg);
 
 	if(saveTo != "")
 	{
-		cv::imwrite(saveTo+".png", EImg);
-		cv::imwrite(saveTo+"16.png", EImg16);
+		cv::imwrite(saveTo+".png", EImg16);
 	}
 }
 void plotG(double* G, std::string saveTo="")
 {
-	cv::Mat GImg = cv::Mat(256,256,CV_32FC1);
+	cv::Mat GImg = cv::Mat(numVals,numVals,CV_32FC1);
 	GImg.setTo(0);
 
 	double min=1e10, max=-1e10;
 
-	for(int i=0;i<256;i++)
+	for(int i=0;i<numVals;i++)
 	{
 		if(G[i] < min) min = G[i];
 		if(G[i] > max) max = G[i];
 	}
 
-	for(int i=0;i<256;i++)
+	for(int i=0;i<numVals;i++)
 	{
-		double val = 256*(G[i]-min) / (max-min);
-		for(int k=0;k<256;k++)
+		double val = numVals*(G[i]-min) / (max-min);
+		for(int k=0;k<numVals;k++)
 		{
 			if(val < k)
 				GImg.at<float>(k,i) = k-val;
@@ -141,7 +127,6 @@ void plotG(double* G, std::string saveTo="")
 	}
 
 	printf("Inv. Response %f - %f\n", min, max);
-	cv::imshow("G", GImg);
 	if(saveTo != "") cv::imwrite(saveTo, GImg*255);
 }
 
@@ -168,32 +153,29 @@ void parseArgument(char* arg)
 		printf("skipFrames set to %d!\n", skipFrames);
 		return;
 	}
+	if(1==sscanf(arg,"trueBitDepth=%d",&option))
+	{
+		trueBitDepth = option;
+		saturationVal = pow(2, trueBitDepth) - 1;
+		numVals = saturationVal + 1;
+		printf("trueBitDepth set to %d!\n", trueBitDepth);
+		return;
+	}
 
 	printf("could not parse argument \"%s\"!!\n", arg);
 }
 
 
-
-int main( int argc, char** argv )
+template<typename T>
+void loadData(std::vector<T*> &dataVec, std::vector<double> &exposureVec, int &w, int &h, DatasetReader* reader)
 {
-	// parse arguments
-	for(int i=2; i<argc;i++)
-		parseArgument(argv[i]);
+	w = 0;
+	h = 0;
 
-
-	// load exposure times & images.
-	// first parameter is dataset location.
-	int w=0,h=0,n=0;
-
-
-	DatasetReader* reader = new DatasetReader(argv[1]);
-	std::vector<double> exposureVec;
-	std::vector<unsigned char*> dataVec;
 	for(int i=0;i<reader->getNumImages();i+=skipFrames)
 	{
 		cv::Mat img = reader->getImageRaw_internal(i);
 		if(img.rows==0 || img.cols==0) continue;
-		assert(img.type() == CV_8U);
 
 		if((w!=0 && w != img.cols) || img.cols==0)
 		{ printf("width mismatch!\n"); exit(1); };
@@ -202,40 +184,47 @@ int main( int argc, char** argv )
 		w = img.cols;
 		h = img.rows;
 
-
-		unsigned char* data = new unsigned char[img.rows*img.cols];
-		memcpy(data, img.data, img.rows*img.cols);
+		T* data = new T[img.rows*img.cols];
+		memcpy(data, img.data, sizeof(T)*img.rows*img.cols);
 		dataVec.push_back(data);
 		exposureVec.push_back((double)(reader->getExposure(i)));
 
-
-		unsigned char* data2 = new unsigned char[img.rows*img.cols];
+		T* data2 = new T[img.rows*img.cols];
 		for(int it=0;it<leakPadding;it++)
 		{
-			memcpy(data2, data, img.rows*img.cols);
+			memcpy(data2, data, sizeof(T)*img.rows*img.cols);
 			for(int y=1;y<h-1;y++)
 				for(int x=1;x<w-1;x++)
 				{
-					if(data[x+y*w]==255)
+					if(data[x+y*w]==saturationVal)
 					{
-						data2[x+1 + w*(y+1)] = 255;
-						data2[x+1 + w*(y  )] = 255;
-						data2[x+1 + w*(y-1)] = 255;
+						data2[x+1 + w*(y+1)] = saturationVal;
+						data2[x+1 + w*(y  )] = saturationVal;
+						data2[x+1 + w*(y-1)] = saturationVal;
 
-						data2[x   + w*(y+1)] = 255;
-						data2[x   + w*(y  )] = 255;
-						data2[x   + w*(y-1)] = 255;
+						data2[x   + w*(y+1)] = saturationVal;
+						data2[x   + w*(y  )] = saturationVal;
+						data2[x   + w*(y-1)] = saturationVal;
 
-						data2[x-1 + w*(y+1)] = 255;
-						data2[x-1 + w*(y  )] = 255;
-						data2[x-1 + w*(y-1)] = 255;
+						data2[x-1 + w*(y+1)] = saturationVal;
+						data2[x-1 + w*(y  )] = saturationVal;
+						data2[x-1 + w*(y-1)] = saturationVal;
 					}
 				}
-			memcpy(data, data2, img.rows*img.cols);
+			memcpy(data, data2, sizeof(T)*img.rows*img.cols);
 		}
 		delete[] data2;
 	}
-	n = dataVec.size();
+}
+template void loadData<unsigned char>(std::vector<unsigned char*> &dataVec, std::vector<double> &exposureVec, 
+	int &w, int &h, DatasetReader* reader);
+template void loadData<unsigned short>(std::vector<unsigned short*> &dataVec, std::vector<double> &exposureVec,
+	int &w, int &h, DatasetReader* reader);
+
+template<typename T>
+void optimize(std::vector<T*> &dataVec, std::vector<double> exposureVec, int w, int h)
+{
+	int n = dataVec.size();
 
 
 	printf("loaded %d images\n", n);
@@ -243,16 +232,15 @@ int main( int argc, char** argv )
 
 	double* E = new double[w*h];		// scene irradiance
 	double* En = new double[w*h];		// scene irradiance
-	double* G = new double[256];		// inverse response function
+	double* G = new double[numVals];		// inverse response function
 
 	// set starting scene irradiance to mean of all images.
 	memset(E,0,sizeof(double)*w*h);
 	memset(En,0,sizeof(double)*w*h);
-	memset(G,0,sizeof(double)*256);
+	memset(G,0,sizeof(double)*(numVals));
 	for(int i=0;i<n;i++)
 		for(int k=0;k<w*h;k++)
 		{
-			//if(dataVec[i][k]==255) continue;
 			E[k] += dataVec[i][k];
 			En[k] ++;
 		}
@@ -271,7 +259,6 @@ int main( int argc, char** argv )
 
 	printf("init RMSE = %f! \t", rmse(G, E, exposureVec, dataVec, w*h )[0]);
 	plotE(E,w,h, "photoCalibResult/E-0");
-	cv::waitKey(100);
 
 
 	bool optE = true;
@@ -283,21 +270,21 @@ int main( int argc, char** argv )
 		if(optG)
 		{
 			// optimize log inverse response function.
-			double* GSum = new double[256];
-			double* GNum = new double[256];
-			memset(GSum,0,256*sizeof(double));
-			memset(GNum,0,256*sizeof(double));
+			double* GSum = new double[numVals];
+			double* GNum = new double[numVals];
+			memset(GSum,0,numVals*sizeof(double));
+			memset(GNum,0,numVals*sizeof(double));
 			for(int i=0;i<n;i++)
 			{
 				for(int k=0;k<w*h;k++)
 				{
 					int b = dataVec[i][k];
-					if(b == 255) continue;
+					if(b == saturationVal) continue;
 					GNum[b]++;
 					GSum[b]+= E[k] * exposureVec[i];
 				}
 			}
-			for(int i=0;i<256;i++)
+			for(int i=0;i<numVals;i++)
 			{
 				G[i] = GSum[i] / GNum[i];
 				if(!std::isfinite(G[i]) && i > 1) G[i] = G[i-1] + (G[i-1]-G[i-2]);
@@ -326,7 +313,7 @@ int main( int argc, char** argv )
 				for(int k=0;k<w*h;k++)
 				{
 					int b = dataVec[i][k];
-					if(b == 255) continue;
+					if(b == saturationVal) continue;
 					ENum[k] += exposureVec[i]*exposureVec[i];
 					ESum[k] += (G[b]) * exposureVec[i];
 				}
@@ -346,19 +333,17 @@ int main( int argc, char** argv )
 		}
 
 
-		// rescale such that maximum response is 255 (fairly arbitrary choice).
-		double rescaleFactor=255.0 / G[255];
+		// rescale such that maximum response is saturationVal (fairly arbitrary choice).
+		double rescaleFactor= double(saturationVal) / G[saturationVal];
 		for(int i=0;i<w*h;i++)
 		{
 			E[i] *= rescaleFactor;
-			if(i<256) G[i] *= rescaleFactor;
+			if(i<numVals) G[i] *= rescaleFactor;
 		}
 		Eigen::Vector2d err = rmse(G, E, exposureVec, dataVec, w*h );
 		printf("resc RMSE = %f!  \trescale with %f!\n",  err[0], rescaleFactor);
 
 		logFile << it << " " << n << " " << err[1] << " " << err[0] << "\n";
-
-		cv::waitKey(100);
 	}
 
 	logFile.flush();
@@ -367,7 +352,7 @@ int main( int argc, char** argv )
 	std::ofstream lg;
 	lg.open("photoCalibResult/pcalib.txt", std::ios::trunc | std::ios::out);
 	lg.precision(15);
-	for(int i=0;i<256;i++)
+	for(int i=0;i<numVals;i++)
 		lg << G[i] << " ";
 	lg << "\n";
 
@@ -378,5 +363,51 @@ int main( int argc, char** argv )
 	delete[] En;
 	delete[] G;
 	for(int i=0;i<n;i++) delete[] dataVec[i];
+}
+template void optimize<unsigned char>(std::vector<unsigned char*> &dataVec, std::vector<double> exposureVec, int w, 
+	int h);
+template void optimize<unsigned short>(std::vector<unsigned short*> &dataVec, std::vector<double> exposureVec, int w, 
+	int h);
+
+int main( int argc, char** argv )
+{
+	// parse arguments
+	for(int i=2; i<argc;i++)
+		parseArgument(argv[i]);
+
+	std::vector<double> exposureVec;
+	int w, h;
+	DatasetReader* reader = new DatasetReader(argv[1], trueBitDepth);
+	int image_type = reader->getImageType();
+	if(image_type == CV_8UC1)
+	{
+		if(saturationVal > 255)
+		{
+			printf("ERROR: The saturated pixel value, %i, exceeds the image bit depth, 255. Change the saturationVal input.\n",
+				saturationVal);
+			return -1;
+		}
+		std::vector<unsigned char*> dataVec;
+		loadData(dataVec, exposureVec, w, h, reader);
+		optimize(dataVec, exposureVec, w, h);
+	}
+	if(image_type == CV_16UC1)
+	{
+		if(saturationVal > 65535)
+		{
+			printf("ERROR: The saturated pixel value, %i, exceeds the image bit depth, 65535. Change the saturationVal input.\n",
+				saturationVal);
+			return -1;
+		}
+		std::vector<unsigned short*> dataVec;
+		loadData(dataVec, exposureVec, w, h, reader);
+		optimize(dataVec, exposureVec, w, h);
+	}
+	else
+	{
+		printf("ERROR: OpenCV image type %i not supported.\n", image_type);
+		return -1;
+	}
+
 	return 0;
 }

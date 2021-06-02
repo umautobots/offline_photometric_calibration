@@ -33,6 +33,7 @@
 #include <fstream>
 #include <dirent.h>
 #include <algorithm>
+#include <math.h>
 
 #include "opencv2/opencv.hpp"
 #include "Undistort.h"
@@ -80,13 +81,12 @@ inline int getdir (std::string dir, std::vector<std::string> &files)
 class DatasetReader
 {
 public:
-	DatasetReader(std::string folder)
+	DatasetReader(std::string folder, int trueBitDepth)
 	{
 		this->path = folder;
 		for(int i=0;i<3;i++)
 		{
 			undistorter=0;
-			databuffer=0;
 		}
 
 		getdir (path+"images/", files);
@@ -94,11 +94,31 @@ public:
 				path.c_str(), (int)files.size());
 		loadTimestamps(path+"times.txt");
 
+		// Set the saturation value, image type, number of zero-padded least significant bits
+		int saturationVal = pow(2, trueBitDepth) - 1;
+		cv::Mat tmpImg = cv::imread(files[0],CV_LOAD_IMAGE_ANYDEPTH);
+		imageType = tmpImg.type();
+		if(imageType == CV_8UC1)
+		{
+			lsbPadNum = 8 - trueBitDepth;
+		}
+		else if(imageType == CV_16UC1)
+		{
+			lsbPadNum = 16 - trueBitDepth;
+		}
+		else
+		{
+			throw std::runtime_error("ERROR: input image type not supported.\n");
+		}
+		if(lsbPadNum < 0)
+		{
+			throw std::runtime_error("ERROR: The trueBitDepth exceeds the bit depth of the input image.\n");
+		}
 
 		// create undistorter.
 		undistorter = Undistort::getUndistorterForFile((path+"camera.txt").c_str());
 		photoUndistorter = new PhotometricUndistorter(path+"pcalib.txt", path+"vignette.png",
-			undistorter->getOriginalSize()[0],undistorter->getOriginalSize()[1]);
+			undistorter->getOriginalSize()[0],undistorter->getOriginalSize()[1], saturationVal);
 
 
 		// get image widths.
@@ -115,7 +135,6 @@ public:
 	{
 		if(undistorter!=0) delete undistorter;
 		if(photoUndistorter!=0) delete photoUndistorter;
-		if(databuffer!=0) delete[] databuffer;
 		delete[] internalTempBuffer;
 
 	}
@@ -151,25 +170,8 @@ public:
 
 	ExposureImage* getImage(int id, bool rectify, bool removeGamma, bool removeVignette, bool nanOverexposed)
 	{
-		assert(id >= 0 && id < (int)files.size());
-
 		cv::Mat imageRaw = getImageRaw_internal(id);
-
-		if(imageRaw.rows != heightOrg || imageRaw.cols != widthOrg)
-		{
-			printf("ERROR: expected cv-mat to have dimensions %d x %d; found %d x %d (image %s)!\n",
-					widthOrg, heightOrg, imageRaw.cols, imageRaw.rows, files[id].c_str());
-			return 0;
-		}
-
-		if(imageRaw.type() != CV_8U)
-		{
-			printf("ERROR: expected cv-mat to have type 8U!\n");
-			return 0;
-		}
-
 		ExposureImage* ret=0;
-
 
 		if(removeGamma || removeVignette || nanOverexposed)
 		{
@@ -177,14 +179,32 @@ public:
 			{
 				// photo undist only.
 				ret = new ExposureImage(widthOrg, heightOrg, timestamps[id], exposures[id], id);
-				photoUndistorter->unMapImage(imageRaw.data, ret->image, widthOrg*heightOrg, removeGamma, removeVignette, nanOverexposed );
+				if(imageType == CV_8UC1)
+				{
+					photoUndistorter->unMapImage(imageRaw.data, ret->image, widthOrg*heightOrg, removeGamma,
+						removeVignette, nanOverexposed );
+				}
+				else if(imageType == CV_16UC1)
+				{
+					photoUndistorter->unMapImage(imageRaw.ptr<unsigned short>(), ret->image, widthOrg*heightOrg,
+						removeGamma, removeVignette, nanOverexposed );
+				}
 			}
 			else
 			{
 				// photo undist to buffer, then rect
 				ret = new ExposureImage(width, height, timestamps[id], exposures[id], id);
-				photoUndistorter->unMapImage(imageRaw.data, internalTempBuffer, widthOrg*heightOrg, removeGamma, removeVignette, nanOverexposed );
-				undistorter->undistort<float>(internalTempBuffer, ret->image, widthOrg*heightOrg, width*height);
+				if(imageType == CV_8UC1)
+				{
+					photoUndistorter->unMapImage(imageRaw.data, internalTempBuffer, widthOrg*heightOrg, removeGamma,
+						removeVignette, nanOverexposed );
+				}
+				else if(imageType == CV_16UC1)
+				{
+					photoUndistorter->unMapImage(imageRaw.ptr<unsigned short>(), internalTempBuffer, widthOrg*heightOrg,
+						removeGamma, removeVignette, nanOverexposed );
+				}
+				undistorter->undistort(internalTempBuffer, ret->image, widthOrg*heightOrg, width*height);
 			}
 		}
 		else
@@ -193,14 +213,30 @@ public:
 			{
 				// rect only.
 				ret = new ExposureImage(width, height, timestamps[id], exposures[id], id);
-				undistorter->undistort<unsigned char>(imageRaw.data, ret->image, widthOrg*heightOrg, width*height);
+				if(imageType == CV_8UC1)
+				{
+					undistorter->undistort(imageRaw.data, ret->image, widthOrg*heightOrg, width*height);
+				}
+				else if(imageType == CV_16UC1)
+				{
+					undistorter->undistort(imageRaw.ptr<unsigned short>(), ret->image, widthOrg*heightOrg,
+						width*height);
+				}
 			}
 			else
 			{
 				// do nothing.
 				ret = new ExposureImage(widthOrg, heightOrg, timestamps[id], exposures[id], id);
-				for(int i=0;i<widthOrg*heightOrg;i++)
-					ret->image[i] = imageRaw.at<uchar>(i);
+				if(imageType == CV_8UC1)
+				{
+					for(int i=0;i<widthOrg*heightOrg;i++)
+						ret->image[i] = imageRaw.at<unsigned char>(i);
+				}
+				else if(imageType == CV_16UC1)
+				{
+					for(int i=0;i<widthOrg*heightOrg;i++)
+						ret->image[i] = imageRaw.at<unsigned short>(i);
+				}
 			}
 		}
 		return ret;
@@ -210,7 +246,30 @@ public:
 
 	cv::Mat getImageRaw_internal(int id)
 	{
-		return cv::imread(files[id],CV_LOAD_IMAGE_GRAYSCALE);
+		// Check the index is in range
+		if(!(id >= 0 && id < (int)files.size()))
+		{
+			throw std::runtime_error("ERROR: image index out of range.\n");
+		}
+
+		// Import the image
+		cv::Mat imageRaw = cv::imread(files[id],CV_LOAD_IMAGE_ANYDEPTH);
+
+		// Check the image parameters against expected values
+		if(!(imageRaw.rows == heightOrg && imageRaw.cols == widthOrg && imageRaw.type() == imageType))
+		{
+			throw std::runtime_error("ERROR: input image parameters do not match expected values.\n");
+		}
+
+		// Remove the zero-padded least significant bits
+		imageRaw = imageRaw / pow(2, lsbPadNum);
+
+		return imageRaw;
+	}
+
+	int getImageType()
+	{
+		return imageType;
 	}
 
 
@@ -270,12 +329,15 @@ private:
 
 	std::string path;
 
+	// type of images. assumes every image has the same type
+	int imageType;
 
+	// the number of zero-padded least significant bits
+	int lsbPadNum;
 
 	// internal structures.
 	Undistort* undistorter;
 	PhotometricUndistorter* photoUndistorter;
-	char* databuffer;
 
 	float* internalTempBuffer;
 };

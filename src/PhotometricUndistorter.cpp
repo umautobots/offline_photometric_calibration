@@ -42,7 +42,7 @@
 PhotometricUndistorter::PhotometricUndistorter(
 		std::string file,
 		std::string vignetteImage,
-		int w_, int h_)
+		int w_, int h_, int saturationVal_)
 {
 
 	validVignette=false;
@@ -52,6 +52,9 @@ PhotometricUndistorter::PhotometricUndistorter(
 	vignetteMapInv=0;
 	w = w_;
 	h = h_;
+
+	saturationVal = saturationVal_;
+	int numVals = saturationVal + 1;
 
 	if(file=="" || vignetteImage=="") return;
 
@@ -71,14 +74,16 @@ PhotometricUndistorter::PhotometricUndistorter(
 	std::getline( f, line );
 	std::istringstream l1i( line );
 	std::vector<float> GInvvec = std::vector<float>( std::istream_iterator<float>(l1i), std::istream_iterator<float>() );
-	if(GInvvec.size() != 256)
+	G = new float[numVals];
+	GInv = new float[numVals];
+	if(GInvvec.size() != numVals)
 	{
-		printf("PhotometricUndistorter: invalid format! got %d entries in first line, expected 256!\n",(int)GInvvec.size());
+		printf("PhotometricUndistorter: invalid format! got %d entries in first line, expected %i!\n",(int)GInvvec.size(), numVals);
 		return;
 	}
-	for(int i=0;i<256;i++) GInv[i] = GInvvec[i];
+	for(int i=0;i<numVals;i++) GInv[i] = GInvvec[i];
 
-	for(int i=0;i<255;i++)
+	for(int i=0;i<saturationVal;i++)
 	{
 		if(GInv[i+1] <= GInv[i])
 		{
@@ -87,15 +92,15 @@ PhotometricUndistorter::PhotometricUndistorter(
 		}
 	}
 	float min=GInv[0];
-	float max=GInv[255];
-	for(int i=0;i<256;i++) GInv[i] = 255.0 * (GInv[i] - min) / (max-min);			// make it to 0..255 => 0..255.
+	float max=GInv[saturationVal];
+	for(int i=0;i<numVals;i++) GInv[i] = float(saturationVal) * (GInv[i] - min) / (max-min);			// make it to 0..saturationVal => 0..saturationVal.
 
 	// invert Gamma (maybe someone needs this).
-	for(int i=1;i<255;i++)
+	for(int i=1;i<saturationVal;i++)
 	{
 		// find val, such that Binv[val] = i.
 		// I dont care about speed for this, so do it the stupid way.
-		for(int s=1;s<255;s++)
+		for(int s=1;s<saturationVal;s++)
 		{
 			if(GInv[s] <= i && GInv[s+1] >= i)
 			{
@@ -105,7 +110,7 @@ PhotometricUndistorter::PhotometricUndistorter(
 		}
 	}
 	G[0] = 0;
-	G[255] = 255;
+	G[saturationVal] = saturationVal;
 	f.close();
 	validGamma=true;
 
@@ -157,13 +162,15 @@ PhotometricUndistorter::PhotometricUndistorter(
 }
 PhotometricUndistorter::~PhotometricUndistorter()
 {
+	if(G != 0) delete[] G;
+	if(GInv != 0) delete[] GInv;
 	if(vignetteMap != 0) delete[] vignetteMap;
 	if(vignetteMapInv != 0) delete[] vignetteMapInv;
 }
 
-
+template<typename T>
 void PhotometricUndistorter::unMapImage(
-		unsigned char* image_in,
+		T* image_in,
 		float* image_out,
 		int n,
 		bool undoGamma,
@@ -207,9 +214,23 @@ void PhotometricUndistorter::unMapImage(
 
 	if(killOverexposed)
 	{
-		for(int i=0;i<n;i++) if(image_in[i]==255) image_out[i]=NAN;
+		for(int i=0;i<n;i++) if(image_in[i]==saturationVal) image_out[i]=NAN;
 	}
 }
+template void PhotometricUndistorter::unMapImage<unsigned char>(
+		unsigned char* image_in,
+		float* image_out,
+		int n,
+		bool undoGamma,
+		bool undoVignette,
+		bool killOverexposed);
+template void PhotometricUndistorter::unMapImage<unsigned short>(
+		unsigned short* image_in,
+		float* image_out,
+		int n,
+		bool undoGamma,
+		bool undoVignette,
+		bool killOverexposed);
 
 
 

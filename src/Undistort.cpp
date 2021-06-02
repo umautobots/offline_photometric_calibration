@@ -170,6 +170,7 @@ void Undistort::undistort(const T* input, float* output, int nPixIn, int nPixOut
 }
 template void Undistort::undistort<float>(const float* input, float* output, int nPixIn, int nPixOut) const;
 template void Undistort::undistort<unsigned char>(const unsigned char* input, float* output, int nPixIn, int nPixOut) const;
+template void Undistort::undistort<unsigned short>(const unsigned short* input, float* output, int nPixIn, int nPixOut) const;
 
 void Undistort::makeOptimalK_crop()
 {

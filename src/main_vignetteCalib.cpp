@@ -45,6 +45,28 @@
 #include <fstream>
 #include <dirent.h>
 #include <algorithm>
+#include <math.h>
+
+int imageSkip=1;
+
+int maxIterations=20;
+
+// grid width for template image.
+int gw = 1000;
+int gh = 1000;
+
+// width of grid relative to marker (fac times marker size)
+float facw = 5;
+float fach = 5;
+
+// The true (embedded) pixel bit depth
+int trueBitDepth = 12;
+int saturationVal = pow(2, trueBitDepth) - 1;
+int numVals = saturationVal + 1;
+
+// remove pixel with absolute gradient larger than this from the optimization.
+int maxAbsGrad = saturationVal;
+int outlierTh = int(15.0 * (float(saturationVal) / 255.0) * (float(saturationVal) / 255.0));
 
 
 // reads interpolated element from a uchar* array
@@ -69,7 +91,7 @@ EIGEN_ALWAYS_INLINE float getInterpolatedElement(const float* const mat, const f
 	return res;
 }
 
-void displayImage(float* I, int w, int h, std::string name)
+void displayImage(float* I, int w, int h, std::string name, int image_type)
 {
 	float vmin=1e10;
 	float vmax=-1e10;
@@ -80,59 +102,100 @@ void displayImage(float* I, int w, int h, std::string name)
 		if(vmax < I[i]) vmax = I[i];
 	}
 
-	cv::Mat img = cv::Mat(h,w,CV_8UC3);
-
-	for(int i=0;i<w*h;i++)
+	cv::Mat img;
+	if(image_type == CV_8UC1)
 	{
-		if(isnanf(I[i])) img.at<cv::Vec3b>(i) = cv::Vec3b(0,0,255);
-		else img.at<cv::Vec3b>(i) = cv::Vec3b(255*(I[i]-vmin) / (vmax-vmin),255*(I[i]-vmin) / (vmax-vmin),255*(I[i]-vmin) / (vmax-vmin));
+		img = cv::Mat(h,w,CV_8UC3);
+		int maxVal = 255;
+		for(int i=0;i<w*h;i++)
+		{
+			if(isnanf(I[i])) img.at<cv::Vec3b>(i) = cv::Vec3b(0,0,maxVal);
+			else img.at<cv::Vec3b>(i) = cv::Vec3b(maxVal*(I[i]-vmin) / (vmax-vmin),
+				maxVal*(I[i]-vmin) / (vmax-vmin),
+				maxVal*(I[i]-vmin) / (vmax-vmin));
+		}
+	}
+	else if(image_type == CV_16UC1)
+	{
+		img = cv::Mat(h,w,CV_16UC3);
+		int maxVal = pow(2, 16) - 1;
+		for(int i=0;i<w*h;i++)
+		{
+			if(isnanf(I[i])) img.at<cv::Vec3s>(i) = cv::Vec3s(0,0,maxVal);
+			else img.at<cv::Vec3s>(i) = cv::Vec3s(maxVal*(I[i]-vmin) / (vmax-vmin),
+				maxVal*(I[i]-vmin) / (vmax-vmin),
+				maxVal*(I[i]-vmin) / (vmax-vmin));
+		}
+	}
+	else
+	{
+		throw std::runtime_error("ERROR: image type not supported.\n");
 	}
 
 	printf("plane image values %f - %f!\n", vmin, vmax);
 	cv::imshow(name, img);
 	cv::imwrite("vignetteCalibResult/plane.png", img);
 }
-void displayImageV(float* I, int w, int h, std::string name)
+void displayImageV(float* I, int w, int h, std::string name, int image_type)
 {
-	cv::Mat img = cv::Mat(h,w,CV_8UC3);
-	for(int i=0;i<w*h;i++)
+	cv::Mat img;
+	if(image_type == CV_8UC1)
 	{
-		if(isnanf(I[i]))
-			img.at<cv::Vec3b>(i) = cv::Vec3b(0,0,255);
-		else
+		img = cv::Mat(h,w,CV_8UC3);
+		int maxVal = 255;
+		for(int i=0;i<w*h;i++)
 		{
-			float c = 254*I[i];
-			img.at<cv::Vec3b>(i) = cv::Vec3b(c,c,c);
-		}
+			if(isnanf(I[i]))
+				img.at<cv::Vec3b>(i) = cv::Vec3b(0,0,maxVal);
+			else
+			{
+				float c = (maxVal - 1)*I[i];
+				img.at<cv::Vec3b>(i) = cv::Vec3b(c,c,c);
+			}
 
+		}
+	}
+	else if(image_type == CV_16UC1)
+	{
+		img = cv::Mat(h,w,CV_16UC3);
+		int maxVal = pow(2, 16) - 1;
+		for(int i=0;i<w*h;i++)
+		{
+			if(isnanf(I[i]))
+				img.at<cv::Vec3s>(i) = cv::Vec3s(0,0,maxVal);
+			else
+			{
+				float c = (maxVal - 1)*I[i];
+				img.at<cv::Vec3s>(i) = cv::Vec3s(c,c,c);
+			}
+
+		}
+	}
+	else
+	{
+		throw std::runtime_error("ERROR: image type not supported.\n");
 	}
 	cv::imshow(name, img);
 }
 
 
-
-
-int imageSkip=1;
-
-
-int maxIterations=20;
-int outlierTh = 15;
-
-// grid width for template image.
-int gw = 1000;
-int gh = 1000;
-
-// width of grid relative to marker (fac times marker size)
-float facw = 5;
-float fach = 5;
-
-// remove pixel with absolute gradient larger than this from the optimization.
-int maxAbsGrad = 255;
-
 void parseArgument(char* arg)
 {
 	int option;
 	float optionf;
+
+	if(1==sscanf(arg,"trueBitDepth=%d",&option))
+	{
+		trueBitDepth = option;
+		saturationVal = pow(2, trueBitDepth) - 1;
+		numVals = saturationVal + 1;
+		printf("trueBitDepth set to %d!\n", trueBitDepth);
+
+		// Adjust other settings based on the saturationVal
+		maxAbsGrad = saturationVal;
+		outlierTh = int(15.0 * (float(saturationVal) / 255.0) * (float(saturationVal) / 255.0));
+		return;
+	}
 
 	if(1==sscanf(arg,"iterations=%d",&option))
 	{
@@ -207,8 +270,11 @@ int main( int argc, char** argv )
 	Eigen::Matrix3f K_p2idx_inverse = K_p2idx.inverse();
 
 	// Create dataset reader
-	DatasetReader* reader = new DatasetReader(argv[1]);
+	DatasetReader* reader = new DatasetReader(argv[1], trueBitDepth);
 	printf("SEQUENCE NAME: %s!\n", argv[1]);
+
+	// Determine the image type
+	int image_type = reader->getImageType();
 
 	// Set the rectified image dimensions (from calibration file)
 	int w_out, h_out;
@@ -242,8 +308,23 @@ int main( int argc, char** argv )
 		// Get the undistorted/rectified image (with no photometric correction)
 		ExposureImage* img = reader->getImage(i,true, false, false, false);
 
+		// Convert to 8-bit OpenCV image for ArUco detector
 		cv::Mat InImage;
-		cv::Mat(h_out, w_out, CV_32F, img->image).convertTo(InImage, CV_8U, 1, 0);
+		if(image_type == CV_8UC1)
+		{
+			cv::Mat(h_out, w_out, CV_32F, img->image).convertTo(InImage, CV_8U, 1, 0);
+		}
+		else if(image_type == CV_16UC1)
+		{
+			cv::Mat TempImage(h_out, w_out, CV_32F, img->image);
+			cv::normalize(TempImage, InImage, 0, 255, cv::NORM_MINMAX, CV_8U);
+		}
+		else
+		{
+			printf("ERROR: OpenCV image type %i not supported.\n", image_type);
+			return -1;
+		}
+
 		delete img;
 
 		// Detect the ArUco marker
@@ -325,9 +406,26 @@ int main( int argc, char** argv )
 
 
 		// debug-plot (draw grid lines on the unrectified image and display the result).
-		cv::Mat dbgImg(imgRaw->h, imgRaw->w, CV_8UC3);
-		for(int i=0;i<imgRaw->w*imgRaw->h;i++)
-			dbgImg.at<cv::Vec3b>(i) = cv::Vec3b(imgRaw->image[i], imgRaw->image[i], imgRaw->image[i]);
+		cv::Mat dbgImg;
+		if(image_type == CV_8UC1)
+		{
+			dbgImg = cv::Mat(imgRaw->h, imgRaw->w, CV_8UC3);
+			for(int i=0;i<imgRaw->w*imgRaw->h;i++)
+				dbgImg.at<cv::Vec3b>(i) = cv::Vec3b(imgRaw->image[i], imgRaw->image[i], imgRaw->image[i]);
+		}
+		else if(image_type == CV_16UC1)
+		{
+			cv::Mat dbgImgTmp(imgRaw->h, imgRaw->w, CV_16UC3);
+			for(int i=0;i<imgRaw->w*imgRaw->h;i++)
+				dbgImgTmp.at<cv::Vec3s>(i) = cv::Vec3s(imgRaw->image[i], imgRaw->image[i], imgRaw->image[i]);
+			dbgImgTmp = dbgImgTmp / 16;
+			dbgImgTmp.convertTo(dbgImg, CV_8UC3, 1, 0);
+		}
+		else
+		{
+			printf("ERROR: OpenCV image type %i not supported.\n", image_type);
+			return -1;
+		}
 
 		for(int x=0; x<=gw;x+=200)
 			for(int y=0; y<=gh;y+=10)
@@ -473,7 +571,7 @@ int main( int argc, char** argv )
 			else
 				planeColor[pi] = planeColorFC[pi] / planeColorFF[pi];
 		}
-		displayImage(planeColor, gw, gh, "Plane");
+		displayImage(planeColor, gw, gh, "Plane", image_type);
 
 		printf("%f residual terms => %f\n", R, sqrtf(E/R));
 
@@ -597,7 +695,7 @@ int main( int argc, char** argv )
 			}
 
 			{
-				displayImageV(vignetteFactorTT, wI, hI, "VignetteSmoothed");
+				displayImageV(vignetteFactorTT, wI, hI, "VignetteSmoothed", image_type);
 				cv::Mat wrap = cv::Mat(hI, wI, CV_32F, vignetteFactorTT)*254.9*254.9;
 				cv::Mat wrap16;
 				wrap.convertTo(wrap16, CV_16U,1,0);
@@ -605,7 +703,7 @@ int main( int argc, char** argv )
 				cv::waitKey(50);
 			}
 			{
-				displayImageV(vignetteFactor, wI, hI, "VignetteOrg");
+				displayImageV(vignetteFactor, wI, hI, "VignetteOrg", image_type);
 				cv::Mat wrap = cv::Mat(hI, wI, CV_32F, vignetteFactor)*254.9*254.9;
 				cv::Mat wrap16;
 				wrap.convertTo(wrap16, CV_16U,1,0);
