@@ -122,7 +122,7 @@ void plotG(double* G, std::string saveTo="")
 		for(int k=0;k<numVals;k++)
 		{
 			if(val < k)
-				GImg.at<float>(k,i) = k-val;
+				GImg.at<float>(numVals - k,i) = k-val;
 		}
 	}
 
@@ -264,6 +264,7 @@ void optimize(std::vector<T*> &dataVec, std::vector<double> exposureVec, int w, 
 	bool optE = true;
 	bool optG = true;
 
+	Eigen::Vector2d err;
 
 	for(int it=0;it<nits;it++)
 	{
@@ -340,22 +341,92 @@ void optimize(std::vector<T*> &dataVec, std::vector<double> exposureVec, int w, 
 			E[i] *= rescaleFactor;
 			if(i<numVals) G[i] *= rescaleFactor;
 		}
-		Eigen::Vector2d err = rmse(G, E, exposureVec, dataVec, w*h );
+		err = rmse(G, E, exposureVec, dataVec, w*h );
 		printf("resc RMSE = %f!  \trescale with %f!\n",  err[0], rescaleFactor);
 
 		logFile << it << " " << n << " " << err[1] << " " << err[0] << "\n";
+
+		// Save the current result.
+		char buf[1000]; snprintf(buf, 1000, "photoCalibResult/pcalib-%d.txt", it+1);
+		std::ofstream lg;
+		lg.open(buf, std::ios::trunc | std::ios::out);
+		lg.precision(15);
+		for(int i=0;i<numVals;i++)
+			lg << G[i] << " ";
+		lg << "\n";
+		lg.flush();
+		lg.close();
+	}
+
+	// Check if the inverse response is monotonically increasing.
+	bool monotonic = true;
+	for(int i=0;i<saturationVal;i++)
+	{
+		if(G[i+1] <= G[i])
+		{
+			printf("Final G is not monotonically increasing, gaps will be interpolated over.\n");
+			monotonic = false;
+			break;
+		}
+	}
+
+	// Interpolate over gaps if G is not mononically increasing.
+	if(!monotonic)
+	{
+		// Interpolate between each point and the next higher point.
+		int gap;
+		int j = 0;
+		for(int i = 1; i <= saturationVal; i++)
+		{
+			if(G[i] > G[j])
+			{
+				gap = i - j;
+				for(int k = 1; k < gap; k++)
+				{
+					G[i - k] = G[i] - (G[i] - G[j]) * k / gap;
+				}
+				j = i;
+			}
+		}
+
+		// If G[saturationVal] is not the largest output, extrapolate.
+		if(j != saturationVal)
+		{
+			// Extrapolate out from the last increasing segment (assuming max(G) != G[0]).
+			double slope = G[j] - G[j - 1];
+			for(int i = j + 1; i <= saturationVal; i++)
+			{
+				G[i] = G[j] + slope * (i - j);
+			}
+
+			// Rescale results a final time such that the maximum inverse response is saturationVal.
+			double rescaleFactor= double(saturationVal) / G[saturationVal];
+			for(int i = 0; i < w * h; i++)
+			{
+				E[i] *= rescaleFactor;
+				if(i<numVals) G[i] *= rescaleFactor;
+			}
+		}
+
+		// Compute the final RMSE.
+		err = rmse(G, E, exposureVec, dataVec, w*h );
+		printf("RMSE after monotonic correction = %f!\n",  err[0]);
+		logFile << "Monotonic Correction " << n << " " << err[1] << " " << err[0] << "\n";
+
+		// Save the final G plot.
+		plotG(G, "photoCalibResult/G-monotonic-correction.png");
 	}
 
 	logFile.flush();
 	logFile.close();
 
+	// Save the final result.
 	std::ofstream lg;
 	lg.open("photoCalibResult/pcalib.txt", std::ios::trunc | std::ios::out);
 	lg.precision(15);
 	for(int i=0;i<numVals;i++)
 		lg << G[i] << " ";
 	lg << "\n";
-
 	lg.flush();
 	lg.close();
 
