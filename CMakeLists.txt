@@ -28,7 +28,7 @@ target_link_libraries(responseCalib ${OpenCV_LIBS})
 add_executable(vignetteCalib src/main_vignetteCalib.cpp src/Undistort.cpp src/PhotometricUndistorter.cpp)
 target_link_libraries(vignetteCalib ${OpenCV_LIBS})
 
-#add_executable(playDataset src/main_playbackDataset.cpp src/FOVUndistorter.cpp src/PhotometricUndistorter.cpp)
-#target_link_libraries(playDataset ${OpenCV_LIBS})
+add_executable(playDataset src/main_playbackDataset.cpp src/Undistort.cpp src/PhotometricUndistorter.cpp)
+target_link_libraries(playDataset ${OpenCV_LIBS})
 
 SET(CMAKE_MODULE_PATH ${CMAKE_INSTALL_PREFIX}/lib/cmake/ )
