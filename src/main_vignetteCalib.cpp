@@ -411,7 +411,8 @@ int main( int argc, char** argv )
 			cv::Mat dbgImgTmp(imgRaw->h, imgRaw->w, CV_16UC3);
 			for(int i=0;i<imgRaw->w*imgRaw->h;i++)
 				dbgImgTmp.at<cv::Vec3s>(i) = cv::Vec3s(imgRaw->image[i], imgRaw->image[i], imgRaw->image[i]);
-			dbgImgTmp = dbgImgTmp / 16;
+			int factor = trueBitDepth - 8;
+			dbgImgTmp = dbgImgTmp / pow(2, factor);
 			dbgImgTmp.convertTo(dbgImg, CV_8UC3, 1, 0);
 		}
 		else
@@ -690,21 +691,65 @@ int main( int argc, char** argv )
 			}
 
 			{
-				displayImageV(vignetteFactorTT, wI, hI, "VignetteSmoothed", image_type);
+				displayImageV(vignetteFactorTT, wI, hI, "Vignette", image_type);
 				cv::Mat wrap = cv::Mat(hI, wI, CV_32F, vignetteFactorTT)*254.9*254.9;
-				cv::Mat wrap16;
-				wrap.convertTo(wrap16, CV_16U,1,0);
-				cv::imwrite("vignetteCalibResult/vignetteSmoothed.png", wrap16);
-				cv::waitKey(50);
-			}
-			{
-				displayImageV(vignetteFactor, wI, hI, "VignetteOrg", image_type);
-				cv::Mat wrap = cv::Mat(hI, wI, CV_32F, vignetteFactor)*254.9*254.9;
 				cv::Mat wrap16;
 				wrap.convertTo(wrap16, CV_16U,1,0);
 				cv::imwrite("vignetteCalibResult/vignette.png", wrap16);
 				cv::waitKey(50);
 			}
+			{
+				displayImageV(vignetteFactor, wI, hI, "VignetteRaw", image_type);
+				cv::Mat wrap = cv::Mat(hI, wI, CV_32F, vignetteFactor)*254.9*254.9;
+				cv::Mat wrap16;
+				wrap.convertTo(wrap16, CV_16U,1,0);
+				cv::imwrite("vignetteCalibResult/vignetteRaw.png", wrap16);
+				cv::waitKey(50);
+			}
+
+			// Plot the horizontal and vertical cross sections
+			cv::Mat HCrossImg = cv::Mat(wI, wI, CV_32FC1);
+			HCrossImg.setTo(0);
+			cv::Mat VCrossImg = cv::Mat(hI, hI, CV_32FC1);
+			VCrossImg.setTo(0);
+
+			double min=1e10, max=1e-10;
+			for(int pi=0;pi<hI*wI;pi++)
+			{
+				if(vignetteFactorTT[pi] < min) min = vignetteFactorTT[pi];
+				if(vignetteFactorTT[pi] > max) max = vignetteFactorTT[pi];
+			}
+
+			int yc = hI / 2;
+			for(int x = 0; x < wI; x++)
+			{
+				int idx = x + yc * wI;
+				double val = wI * (vignetteFactorTT[idx] - min) / (max - min);
+				for(int k = 0; k < wI; k++)
+				{
+					if(val < k)
+					{
+						HCrossImg.at<float>(wI - k, x) = k - val;
+					}
+				}
+			}
+
+			int xc = wI / 2;
+			for(int y = 0; y < hI; y++)
+			{
+				int idx = xc + y * wI;
+				double val = hI * (vignetteFactorTT[idx] - min) / (max - min);
+				for(int k = 0; k < hI; k++)
+				{
+					if(val < k)
+					{
+						VCrossImg.at<float>(hI - k, y) = k - val;
+					}
+				}
+			}
+
+			cv::imwrite("vignetteCalibResult/horizontalCrossSection.png", HCrossImg * 255);
+			cv::imwrite("vignetteCalibResult/verticalCrossSection.png", VCrossImg * 255);
 		}
 	}
 
