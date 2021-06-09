@@ -36,7 +36,7 @@
 #include <math.h>
 
 #include "opencv2/opencv.hpp"
-#include "Undistort.h"
+#include "undistort/Undistort.h"
 #include "ExposureImage.h"
 #include "PhotometricUndistorter.h"
 

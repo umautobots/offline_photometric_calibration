@@ -22,13 +22,13 @@ include_directories(
 )
 
 
-add_executable(responseCalib src/main_responseCalib.cpp src/Undistort.cpp src/PhotometricUndistorter.cpp)
+add_executable(responseCalib src/main_responseCalib.cpp src/undistort/Undistort.cpp src/PhotometricUndistorter.cpp)
 target_link_libraries(responseCalib ${OpenCV_LIBS})
 
-add_executable(vignetteCalib src/main_vignetteCalib.cpp src/Undistort.cpp src/PhotometricUndistorter.cpp)
+add_executable(vignetteCalib src/main_vignetteCalib.cpp src/undistort/Undistort.cpp src/PhotometricUndistorter.cpp)
 target_link_libraries(vignetteCalib ${OpenCV_LIBS})
 
-add_executable(playDataset src/main_playbackDataset.cpp src/Undistort.cpp src/PhotometricUndistorter.cpp)
+add_executable(playDataset src/main_playbackDataset.cpp src/undistort/Undistort.cpp src/PhotometricUndistorter.cpp)
 target_link_libraries(playDataset ${OpenCV_LIBS})
 
 SET(CMAKE_MODULE_PATH ${CMAKE_INSTALL_PREFIX}/lib/cmake/ )
