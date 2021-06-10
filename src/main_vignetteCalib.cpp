@@ -458,6 +458,7 @@ int main( int argc, char** argv )
 
 
 		// Nullify any mapping from a grid coordinate index to an unrectified pixel coordinate outside of the image
+		// or along the image border (note: the values along the border will later be estimated through extrapolation)
 		for(int x=0; x<gw;x++)
 			for(int y=0; y<gh;y++)
 			{
@@ -494,12 +495,12 @@ int main( int argc, char** argv )
 	logFile.precision(15);
 
 
-	// Initialize variables (comments relate to paper)
+	// Initialize variables (comments relate to paper [1] (see README))
 	int n = images.size();
 	float* planeColor = new float[gw*gh]; // C(x)
 	float* planeColorFF = new float[gw*gh]; // Denominator of eq 10 (divided by t_i)
 	float* planeColorFC = new float[gw*gh]; // Numerator of eq 10 (divided by t_i)
-	float* vignetteFactor = new float[hI*wI]; // V(\pi_i(x))
+	float* vignetteFactor = new float[hI*wI]; // V(x)
 	float* vignetteFactorTT = new float[hI*wI]; // Denominator of eq 11 (divided by t_i)
 	float* vignetteFactorCT = new float[hI*wI]; // Numerator of eq 11 (divided by t_i)
 
@@ -594,7 +595,7 @@ int main( int argc, char** argv )
 				float x = plane2imgX[pi];
 				float y = plane2imgY[pi];
 
-				// In the paper `color` is U(I_i(\pi_i(x))) / t_i and fac is V(\pi_i(x))
+				// In the paper `colorImage` is U(I_i(\pi_i(x))) / t_i, fac is V(\pi_i(x)), and colorPlane is C(x)
 				float colorImage = getInterpolatedElement(image, x, y, wI);
 				float fac = getInterpolatedElement(vignetteFactor, x, y, wI);
 				float colorPlane = planeColor[pi];
@@ -610,7 +611,7 @@ int main( int argc, char** argv )
 					continue;
 				}
 
-
+				// Interpolate for the values of V at the integer pixel coordinates
 				int ix = (int)x;
 				int iy = (int)y;
 				float dx = x - ix;
@@ -634,7 +635,7 @@ int main( int argc, char** argv )
 		}
 
 		float maxFac=0;
-		for(int pi=0;pi<hI*wI;pi++)		// for all plane points
+		for(int pi=0;pi<hI*wI;pi++)		// for all pixel coordinates
 		{
 			if(vignetteFactorTT[pi] < 1)
 				vignetteFactor[pi]=NAN;
@@ -660,7 +661,7 @@ int main( int argc, char** argv )
 
 
 
-		// dilate & smoothe vignette by 4 pixel for output.
+		// dilate & smoothe vignette by 4 pixel for output (estimates values on the border that must be extrapolated).
 		// does not change anything in the optimization; uses vignetteFactorTT and vignetteFactorCT for temporary storing
 		{
 			memcpy(vignetteFactorTT, vignetteFactor, sizeof(float)*hI*wI);
