@@ -94,8 +94,7 @@ public:
 				path.c_str(), (int)files.size());
 		loadTimestamps(path+"times.txt");
 
-		// Set the saturation value, image type, number of zero-padded least significant bits
-		int saturationVal = pow(2, trueBitDepth) - 1;
+		// Set the image type and number of zero-padded least significant bits
 		cv::Mat tmpImg = cv::imread(files[0], cv::IMREAD_ANYDEPTH);
 		imageType = tmpImg.type();
 		if(imageType == CV_8UC1)
@@ -118,7 +117,7 @@ public:
 		// create undistorter.
 		undistorter = Undistort::getUndistorterForFile((path+"camera.txt").c_str());
 		photoUndistorter = new PhotometricUndistorter(path+"pcalib.txt", path+"vignette.png",
-			undistorter->getOriginalSize()[0],undistorter->getOriginalSize()[1], saturationVal);
+			undistorter->getOriginalSize()[0],undistorter->getOriginalSize()[1], pow(2, trueBitDepth) - 1);
 
 
 		// get image widths.

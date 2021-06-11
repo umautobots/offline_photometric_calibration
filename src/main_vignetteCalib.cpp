@@ -59,13 +59,6 @@ float fach = 5;
 
 // The true (embedded) pixel bit depth
 int trueBitDepth = 12;
-int saturationVal = pow(2, trueBitDepth) - 1;
-int numVals = saturationVal + 1;
-
-// remove pixel with absolute gradient larger than this from the optimization.
-int maxAbsGrad = saturationVal;
-int outlierTh = int(15.0 * (float(saturationVal) / 255.0) * (float(saturationVal) / 255.0));
-
 
 // reads interpolated element from a uchar* array
 // SSE2 optimization possible
@@ -185,13 +178,7 @@ void parseArgument(char* arg)
 	if(1==sscanf(arg,"trueBitDepth=%d",&option))
 	{
 		trueBitDepth = option;
-		saturationVal = pow(2, trueBitDepth) - 1;
-		numVals = saturationVal + 1;
 		printf("trueBitDepth set to %d!\n", trueBitDepth);
-
-		// Adjust other settings based on the saturationVal
-		maxAbsGrad = saturationVal;
-		outlierTh = int(15.0 * (float(saturationVal) / 255.0) * (float(saturationVal) / 255.0));
 		return;
 	}
 
@@ -278,6 +265,11 @@ int main( int argc, char** argv )
 	int w_out, h_out;
 	w_out = reader->getUndistorter()->getSize()[0];
 	h_out = reader->getUndistorter()->getSize()[1];
+
+	// Set thresholds
+	int saturationVal = reader->getPhotoUndistorter()->getSaturationVal();
+	int maxAbsGrad = saturationVal;
+	int outlierTh = int(15.0 * (float(saturationVal) / 255.0) * (float(saturationVal) / 255.0));
 
 	std::vector<float*> images;
 	std::vector<float*> p2imgX;

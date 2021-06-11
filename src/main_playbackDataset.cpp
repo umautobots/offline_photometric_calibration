@@ -53,11 +53,9 @@ int main( int argc, char** argv )
 	char* trueBitDepthInput = argv[2];
 	int option;
 	int trueBitDepth;
-	float saturationVal;
 	if(1==sscanf(trueBitDepthInput,"trueBitDepth=%d",&option))
 	{
 		trueBitDepth = option;
-		saturationVal = static_cast<float>(pow(2, trueBitDepth) - 1);
 		printf("trueBitDepth set to %d!\n", trueBitDepth);
 	}
 	else
@@ -67,6 +65,7 @@ int main( int argc, char** argv )
 	}
 
 	DatasetReader* reader = new DatasetReader(dataset, trueBitDepth);
+	int saturationVal = reader->getPhotoUndistorter()->getSaturationVal();
 
 	bool autoPlay = false;
 	bool rect = false;
@@ -79,7 +78,7 @@ int main( int argc, char** argv )
 		while(true)
 		{
 			ExposureImage* I = reader->getImage(i, rect, removeGamma, removeVignette, killOverexposed);
-			cv::imshow("Image", cv::Mat(I->h, I->w, CV_32F, I->image) * (1/saturationVal));
+			cv::imshow("Image", cv::Mat(I->h, I->w, CV_32F, I->image) * (1 / (float)saturationVal));
 			printf("Read image %d, time %.5f, exposure %.5fms. Rect (r): %d, remove gamma (g) %d, remove vignette (v): %d, kill overesposed (o)%d\n",
 					I->id, I->timestamp, I->exposure_time,
 					(int)rect, (int)removeGamma, (int)removeVignette, (int)killOverexposed);

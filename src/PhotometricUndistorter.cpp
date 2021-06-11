@@ -54,7 +54,6 @@ PhotometricUndistorter::PhotometricUndistorter(
 	h = h_;
 
 	saturationVal = saturationVal_;
-	int numVals = saturationVal + 1;
 
 	if(file=="" || vignetteImage=="") return;
 
@@ -74,13 +73,17 @@ PhotometricUndistorter::PhotometricUndistorter(
 	std::getline( f, line );
 	std::istringstream l1i( line );
 	std::vector<float> GInvvec = std::vector<float>( std::istream_iterator<float>(l1i), std::istream_iterator<float>() );
-	G = new float[numVals];
-	GInv = new float[numVals];
-	if(GInvvec.size() != numVals)
+	int numVals = GInvvec.size();
+	if(numVals == 0)
 	{
-		printf("PhotometricUndistorter: invalid format! got %d entries in first line, expected %i!\n",(int)GInvvec.size(), numVals);
+		printf("PhotometricUndistorter: inverse response file is empty!\n");
 		return;
 	}
+	printf("PhotometricUndistorter: found %i values in the inverse response file, the saturation value will be set to"
+		" %i\n", numVals, numVals - 1);
+	saturationVal = numVals - 1;
+	G = new float[numVals];
+	GInv = new float[numVals];
 	for(int i=0;i<numVals;i++) GInv[i] = GInvvec[i];
 
 	for(int i=0;i<saturationVal;i++)

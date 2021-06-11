@@ -45,6 +45,7 @@ public:
 
 	float* getGInv()  {if(!validGamma) return 0; else return GInv;};
 	float* getG() 	    {if(!validGamma) return 0; else return G;};
+	int getSaturationVal() {return saturationVal;};
 private:
 	float* G;
 	float* GInv;

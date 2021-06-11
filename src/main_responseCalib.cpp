@@ -188,11 +188,32 @@ void loadData(std::vector<T*> &dataVec, std::vector<double> &exposureVec, int &w
 		memcpy(data, img.data, sizeof(T)*img.rows*img.cols);
 		dataVec.push_back(data);
 		exposureVec.push_back((double)(reader->getExposure(i)));
+	}
 
-		T* data2 = new T[img.rows*img.cols];
+	int maxVal = 0;
+	for(int i=0;i<dataVec.size();i++)
+	{
+		for(int k=0;k<w*h;k++)
+		{
+			int b = dataVec[i][k];
+			if(maxVal < b) maxVal = b;
+		}
+	}
+	if(maxVal < saturationVal)
+	{
+		printf("The maximum pixel value across all images is %i, this is lower than the expected saturation value %i,"
+			" the saturation value will be set to the maximum value.\n", maxVal, saturationVal);
+		saturationVal = maxVal;
+		numVals = saturationVal + 1;
+	}
+
+	for(int i=0;i<reader->getNumImages();i+=skipFrames)
+	{
+		T* data = dataVec[i];
+		T* data2 = new T[w*h];
 		for(int it=0;it<leakPadding;it++)
 		{
-			memcpy(data2, data, sizeof(T)*img.rows*img.cols);
+			memcpy(data2, data, sizeof(T)*w*h);
 			for(int y=1;y<h-1;y++)
 				for(int x=1;x<w-1;x++)
 				{
@@ -211,7 +232,7 @@ void loadData(std::vector<T*> &dataVec, std::vector<double> &exposureVec, int &w
 						data2[x-1 + w*(y-1)] = saturationVal;
 					}
 				}
-			memcpy(data, data2, sizeof(T)*img.rows*img.cols);
+			memcpy(data, data2, sizeof(T)*w*h);
 		}
 		delete[] data2;
 	}
@@ -452,24 +473,12 @@ int main( int argc, char** argv )
 	int image_type = reader->getImageType();
 	if(image_type == CV_8UC1)
 	{
-		if(saturationVal > 255)
-		{
-			printf("ERROR: The saturated pixel value, %i, exceeds the image bit depth, 255. Change the saturationVal input.\n",
-				saturationVal);
-			return -1;
-		}
 		std::vector<unsigned char*> dataVec;
 		loadData(dataVec, exposureVec, w, h, reader);
 		optimize(dataVec, exposureVec, w, h);
 	}
 	if(image_type == CV_16UC1)
 	{
-		if(saturationVal > 65535)
-		{
-			printf("ERROR: The saturated pixel value, %i, exceeds the image bit depth, 65535. Change the saturationVal input.\n",
-				saturationVal);
-			return -1;
-		}
 		std::vector<unsigned short*> dataVec;
 		loadData(dataVec, exposureVec, w, h, reader);
 		optimize(dataVec, exposureVec, w, h);
