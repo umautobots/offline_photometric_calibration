@@ -207,7 +207,7 @@ void loadData(std::vector<T*> &dataVec, std::vector<double> &exposureVec, int &w
 		numVals = saturationVal + 1;
 	}
 
-	for(int i=0;i<reader->getNumImages();i+=skipFrames)
+	for(int i=0;i<dataVec.size();i++)
 	{
 		T* data = dataVec[i];
 		T* data2 = new T[w*h];
